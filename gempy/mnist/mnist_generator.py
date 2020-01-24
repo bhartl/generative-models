@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
-from gempy import MaximumEntropyModel, first_moment
+from mpl_toolkits.axes_grid1 import make_axes_locatable, axes_size
+from gempy import MaximumEntropyModel
 import numpy as np
 from numba import jit
 import os
@@ -107,15 +108,22 @@ class MnistGenerator(MaximumEntropyModel):
 		self._nearest_neighbour_mapping = None
 		self._update_rate = 0.
 
-	def sample(self, x0=None, n_sweeps=1, beta=10., save_fig=False):
+	def sample(self, x0=None, n_sweeps=1, beta=10., save_fig=False, n_samples=None):
 		samples = []
 		self._model_batch = samples
+
+		if n_samples is not None:
+			self._batch_size = n_samples
 
 		if x0 is None:
 			x0 = np.ascontiguousarray(np.random.rand(self.load_minibatch(1)[0].shape[0]))
 
 		x = x0
 		self._nearest_neighbour_mapping = nearest_neighbour_mapping(x)
+		if save_fig and self._step == 1:
+			samples.append(x)
+			self.monitor(end='', save_fig=True)
+			samples.pop(-1)
 
 		proposed, accepted = 0, 0
 		while len(samples) < self._batch_size:
@@ -180,22 +188,35 @@ class MnistGenerator(MaximumEntropyModel):
 
 			ax1, ax2 = axes
 
-			ax1.imshow(self._model_batch[0].reshape((28, 28)), cmap='binary')
-			ax1.set_aspect('equal', 'box')
+			c1 = ax1.imshow(self._model_batch[0].reshape((28, 28)), cmap='binary', vmin=0., vmax=1.)
 			ax1.set_title('sample')
+			ax1.set_xticks([])
+			ax1.set_yticks([])
+			ax1.set_aspect('equal', 'box')
 
 			c2 = ax2.imshow(self._weights[:len(self._model_batch[0])].reshape(28, 28), vmin=-1., vmax=1., cmap='coolwarm')
-			ax2.set_aspect('equal', 'box')
 			ax2.set_title('weights (on-site)')
+			ax2.set_xticks([])
+			ax2.set_yticks([])
+			ax2.set_aspect('equal', 'box')
 
-			f.colorbar(c2, ax=axes.ravel().tolist())
+			divider = make_axes_locatable(ax1)
+			cax = divider.append_axes("right", size="5%", pad=0.05)
+			f.colorbar(c1, ax=axes.ravel().tolist(), cax=cax)
 
-			# plt.tight_layout()
+			divider = make_axes_locatable(ax2)
+			cax = divider.append_axes("right", size="5%", pad=0.05)
+			f.colorbar(c2, ax=axes.ravel().tolist(), cax=cax)
+
+			directory = os.path.dirname(self._file)
+			if not os.path.exists(directory):
+				os.makedirs(directory)
+
 			plt.savefig(self._file.replace('.yml', '') + '-sample_{:04d}.png'.format(self._step))
 			plt.close()
 
-	@classmethod
-	def main(cls, train_on=2, maxsteps=1000, batch_size=16, n_sweeps=1, learning_rate=1e-3, save_fig: (bool, int)=0, reg_l1=0., reg_l2=0.07, path='dat/mnist/'):
+	@staticmethod
+	def load_data(export_path='dat/mnist', train_on=0):
 		import warnings
 		warnings.simplefilter("ignore")
 
@@ -217,9 +238,15 @@ class MnistGenerator(MaximumEntropyModel):
 		X_train /= 255.0
 		X_test /= 255.0
 
-		train_path = os.path.join(path, 'number_{}.yml'.format(train_on))
+		train_path = os.path.join(export_path, 'number_{}.yml'.format(train_on))
 		X_train = np.concatenate((X_train[y_train == train_on], X_test[y_test == train_on]))
 		print('*** train on {} `{}`s in the mnist dataset ***'.format(len(X_train), train_on))
+
+		return X_train, train_path
+
+	@classmethod
+	def main(cls, train_on=2, maxsteps=1000, batch_size=16, n_sweeps=1, learning_rate=1e-3, save_fig: (bool, int)=0, reg_l1=0., reg_l2=0.07, export_path='dat/mnist/'):
+		X_train, train_path = MnistGenerator.load_data(export_path=export_path, train_on=train_on)
 
 		mnist = cls(
 			data=X_train,
@@ -249,6 +276,7 @@ class MnistGenerator(MaximumEntropyModel):
 		plt.legend()
 		plt.show()
 
+		return mnist
 
 if __name__ == '__main__':
 	import argh

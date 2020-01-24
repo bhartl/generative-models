@@ -203,7 +203,7 @@ class MaximumEntropyModel(object):
 			self._step = int(np.sum([len(c) for c in history['cost']]))
 			self._weights = history['weights'][-1] if len(history['weights']) > 0 else self._weights
 
-		except (AssertionError, FileNotFoundError, TypeError):
+		except Exception:
 			history = dict(cost=[], weights=[])
 			self._step = 0
 
