@@ -30,6 +30,7 @@ nohup.out
 **.ipynb_checkpoints
 dat
 dat*
+**dat
 **__pycache__
 sync
 papers
