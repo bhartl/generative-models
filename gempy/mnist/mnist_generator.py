@@ -156,7 +156,7 @@ class MnistGenerator(MaximumEntropyModel):
 			self._batch_size = n_samples
 
 		if x0 is None:
-			x0 = np.ascontiguousarray(2.*(np.random.rand(self.load_minibatch(1)[0].shape[0]) - 1.))
+			x0 = np.ascontiguousarray(2.*(np.random.rand(self.load_minibatch(1)[0].shape[0]) - 0.5))
 
 		x = x0
 		self._nearest_neighbour_mapping = nearest_neighbour_mapping(x)
@@ -191,6 +191,8 @@ class MnistGenerator(MaximumEntropyModel):
 		self._update_rate = accepted / proposed
 		self.monitor(end='', save_fig=save_fig if (isinstance(save_fig, bool) or not save_fig) else (not self._step % save_fig))
 		self._model_batch = np.ascontiguousarray(samples)
+		print('')
+		print('min: ', np.min(self._model_batch))
 
 		return self._model_batch
 
@@ -256,13 +258,11 @@ class MnistGenerator(MaximumEntropyModel):
 			ax1.set_title('sample')
 			ax1.set_xticks([])
 			ax1.set_yticks([])
-			ax1.set_aspect('equal', 'box')
 
 			c2 = ax2.imshow(self._weights[:len(self._model_batch[0])].reshape(28, 28), vmin=-1., vmax=1., cmap='coolwarm')
 			ax2.set_title('weights (on-site)')
 			ax2.set_xticks([])
 			ax2.set_yticks([])
-			ax2.set_aspect('equal', 'box')
 
 			divider = make_axes_locatable(ax1)
 			cax = divider.append_axes("right", size="5%", pad=0.05)
