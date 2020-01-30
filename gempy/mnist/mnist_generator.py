@@ -191,8 +191,6 @@ class MnistGenerator(MaximumEntropyModel):
 		self._update_rate = accepted / proposed
 		self.monitor(end='', save_fig=save_fig if (isinstance(save_fig, bool) or not save_fig) else (not self._step % save_fig))
 		self._model_batch = np.ascontiguousarray(samples)
-		print('')
-		print('min: ', np.min(self._model_batch))
 
 		return self._model_batch
 
