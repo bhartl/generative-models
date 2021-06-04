@@ -4,6 +4,7 @@ from gempy import MaximumEntropyModel
 import numpy as np
 from numba import jit
 import os
+import argh
 
 
 def on_site(data):
@@ -357,6 +358,6 @@ class MnistGenerator(MaximumEntropyModel):
 
 		return mnist
 
+
 if __name__ == '__main__':
-	import argh
 	argh.dispatch_command(MnistGenerator.main)
