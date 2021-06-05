@@ -100,10 +100,11 @@ class ConvDecoder(Decoder):
             f, k, s, a = self.filters_[i], self.kernel_size_[i], self.strides_[i], self.activation_[i]
 
             label = f'decode_conv_t_{i}'
-            layer = conv_transpose(in_channels=in_channels, out_channels=f, kernel_size=k, stride=s)
+            pad = 0
+            layer = conv_transpose(in_channels=in_channels, out_channels=f, kernel_size=k, stride=s, padding=pad)
             activation = self._get_activation_function(a)
 
-            hw = self.conv_transpose_output_shape(hw, kernel_size=k, stride=s)
+            hw = self.conv_transpose_output_shape(hw, kernel_size=k, stride=s, pad=pad)
             out_shape = tuple([xyz
                               for shape_lists in [f, hw]
                               for xyz in (shape_lists if hasattr(shape_lists, '__iter__') else [shape_lists])])
@@ -179,6 +180,7 @@ class ConvDecoder(Decoder):
             for i in range(len(x)):
                 y = layer(x[i])
                 x[i] = self._activate(activation=activation, x=y)
+                print(x[i].shape, y.shape)
 
         x = torch.stack(x, dim=0).sum(dim=0) if not self.latent_merge_ else x[0]
 
@@ -193,7 +195,7 @@ if __name__ == '__main__':
         latent_dim=z_dim,
         latent_upscale=(64, 3, 3),
         filters=[64, 64, 32, 1],
-        kernel_size=[3, 4, 4, 3],
+        kernel_size=[3, 3, 3, 3],
         strides=[1, 2, 2, 1],
         activation='leaky_relu',
         latent_merge=True,
