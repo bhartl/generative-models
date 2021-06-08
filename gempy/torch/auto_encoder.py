@@ -53,7 +53,7 @@ if __name__ == '__main__':
     z_dim = (2, 2)
 
     cnn_encoder = ConvEncoder(
-        input_dim=input_dim,
+        input_shape=input_dim,
         filters=(32, 64, 64, 64),
         kernel_size=(3, 3, 3, 3),
         strides=(1, 2, 2, 1),
@@ -64,10 +64,10 @@ if __name__ == '__main__':
     )
 
     cnn_decoder = ConvDecoder(
-        latent_dim=z_dim,
+        latent_shape=z_dim,
         latent_upscale=(64, 3, 3),
         filters=[64, 64, 32, 1],
-        kernel_size=[3, 4, 4, 3],
+        kernels_size=[3, 4, 4, 3],
         strides=[1, 2, 2, 1],
         activation='leaky_relu',
         latent_merge=False,

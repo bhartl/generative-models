@@ -1,8 +1,9 @@
-from numpy import ndarray, ndim, product
+from numpy import ndarray, product
 import torch.nn as nn
 import torch.cuda
 import torch.tensor
 import torch.nn.functional as F
+from gempy.torch.util import conv_transpose_output_shape
 
 
 class Decoder(nn.Module):
@@ -36,74 +37,122 @@ class Decoder(nn.Module):
 
 class ConvDecoder(Decoder):
     def __init__(self,
-                 latent_dim: (int, tuple, list),
+                 latent_shape: (int, tuple, list),
                  latent_upscale: (int, tuple, list),
                  filters: (tuple, list),
-                 kernel_size: (tuple, list),
+                 kernels_size: (tuple, list),
                  strides: (tuple, list),
-                 activation: (list, tuple, str) = 'leaky_relu',
+                 activation: (list, tuple, str) = None,
                  latent_merge: bool = True,
                  latent_activation: (str, None) = None,
+                 padding: (int, tuple) = 1,
+                 padding_mode: str = 'zeros',
                  **kwargs):
 
-        self.latent_dim_ = latent_dim
-        self.latent_upscale_ = latent_upscale
-        self.latent_merge_ = latent_merge  # whether to merge the latent or the final tensors
-        self.latent_activation_ = latent_activation if latent_activation is not None and not isinstance(latent_activation, str) else [latent_activation] * len(latent_dim)
+        # setup latent dimensions
+        self._latent_shape = None
+        self.latent_shape = latent_shape
 
-        self.upscale_dim_ = latent_upscale[1:]
-        self.upscale_channels_ = latent_upscale[0]
+        self.latent_upscale = latent_upscale
+        self.latent_merge = latent_merge  # whether to merge the latent or the final tensors
 
-        self.filters_ = filters
-        self.kernel_size_ = kernel_size
-        self.strides_ = strides
-        self.activation_ = activation if not isinstance(activation, str) else [activation] * len(filters)
+        self._latent_activation = None
+        self.latent_activation = latent_activation
 
+        self.upscale_channels = latent_upscale[0]
+        self.upscale_dim = latent_upscale[1:]
+        self.upscale_shape = (-1, self.upscale_channels, *self.upscale_dim)
+
+        # setup conv-kernel dimensions
+        self.filters = filters
+        self.kernels_size = kernels_size
+        self.strides = strides
+        self._activation = None
+        self.activation = activation
+
+        self.padding = padding
+        self.padding_mode = padding_mode
+
+        # helper variables
         self.conv_stack = None
-        self.conv_stack_shape_out = None
         self.conv_stack_shape_in = None
-
-        self.conv_stack = None
+        self.conv_stack_shape_out = None
 
         super(ConvDecoder, self).__init__(**kwargs)
 
+    @property
+    def latent_shape(self) -> (int, tuple, list):
+        return self._latent_shape
+
+    @latent_shape.setter
+    def latent_shape(self, value: (int, tuple, list)):
+        if isinstance(value, int):
+            value = (value,)
+
+        self._latent_shape = value
+
+    @property
+    def latent_activation(self) -> [str]:
+        return self._latent_activation
+
+    @latent_activation.setter
+    def latent_activation(self, value: (str, tuple, list)):
+        if value is None or isinstance(value, str):
+            value = [value] * len(self.latent_shape)
+
+        self._latent_activation = list(value)
+
+    @property
+    def activation(self) -> [str]:
+        return self._activation
+
+    @activation.setter
+    def activation(self, value: (str, tuple, list)):
+        if value is None or isinstance(value, str):
+            value = [value] * len(self.filters)
+
+        self._activation = list(value)
+
     def _build(self):
-        latent_dim = self.latent_dim_
-        latent_activation = self.latent_activation_
+        latent_shape = self._latent_shape
+        latent_activation = self.latent_activation
         if not self.is_multi_latent():
-            latent_dim = [latent_dim]
-            latent_activation = [latent_activation] * len(latent_dim)
+            latent_shape = [latent_shape]
+            latent_activation = [latent_activation] * len(latent_shape)
 
         self.latent_stack = []
-        for i, (z_dim, activation) in enumerate(zip(latent_dim, latent_activation)):
+        for i, (latent_shape, activation) in enumerate(zip(latent_shape, latent_activation)):
             label = f'decode_latent_{i}'
-            layer = torch.nn.Linear(z_dim, product(self.latent_upscale_))
+            layer = torch.nn.Linear(latent_shape, product(self.latent_upscale))
             activation = self._get_activation_function(activation)
 
-            self.latent_stack.append((label, layer, activation, self.latent_upscale_))
+            self.latent_stack.append((label, layer, activation, self.latent_upscale))
             setattr(self, label, layer)
-
-        self.upscale_shape = (-1, self.upscale_channels_, *self.upscale_dim_)
 
         self.conv_stack = []
         conv_transpose = self._get_conv_transpose_nd()
 
-        in_channels = self.upscale_channels_
-        hw = self.upscale_dim_
+        in_channels = self.upscale_channels
+        hw = self.upscale_dim
         in_shape = tuple([xyz
                           for shape_lists in [in_channels, hw]
                           for xyz in (shape_lists if hasattr(shape_lists, '__iter__') else [shape_lists])])
         out_shape = None
 
-        for i in range(len(self.filters_)):
-            f, k, s, a = self.filters_[i], self.kernel_size_[i], self.strides_[i], self.activation_[i]
+        for i in range(len(self.filters)):
+            f, k, s, a = self.filters[i], self.kernels_size[i], self.strides[i], self.activation[i]
 
             label = f'decode_conv_t_{i}'
-            pad = 0
-            layer = conv_transpose(in_channels=in_channels, out_channels=f, kernel_size=k, stride=s, padding=pad)
+            layer = conv_transpose(in_channels=in_channels,
+                                   out_channels=f,
+                                   kernel_size=k,
+                                   stride=s,
+                                   padding=self.padding,
+                                   padding_mode=self.padding_mode,
+                                   )
             activation = self._get_activation_function(a)
 
-            hw = self.conv_transpose_output_shape(hw, kernel_size=k, stride=s, pad=pad)
+            hw = conv_transpose_output_shape(hw, kernel_size=k, stride=s, pad=self.padding)
             out_shape = tuple([xyz
                               for shape_lists in [f, hw]
                               for xyz in (shape_lists if hasattr(shape_lists, '__iter__') else [shape_lists])])
@@ -117,60 +166,31 @@ class ConvDecoder(Decoder):
         self.conv_stack_shape_out = out_shape
 
     def is_multi_latent(self):
-        return hasattr(self.latent_dim_, '__iter__')
+        return hasattr(self._latent_shape, '__iter__')
 
     def _get_conv_transpose_nd(self):
-        if len(self.upscale_dim_) == 1:
+        if len(self.upscale_dim) == 1:
             conv_transpose_nd = nn.ConvTranspose1d
 
-        elif len(self.upscale_dim_) == 2:
+        elif len(self.upscale_dim) == 2:
             conv_transpose_nd = nn.ConvTranspose2d
 
-        elif len(self.upscale_dim_) == 3:
+        elif len(self.upscale_dim) == 3:
             conv_transpose_nd = nn.ConvTranspose3d
 
         else:
-            raise AssertionError("input_dim must be in (1, 2, 3)")
+            raise AssertionError("input_shape must be in (1, 2, 3)")
 
         return conv_transpose_nd
-
-    @staticmethod
-    def conv_transpose_output_shape(h_w, kernel_size=1, stride=1, pad=0):
-        """
-        Utility function for computing output of transposed convolutions
-        takes a number h_w or a tuple of (h,w) and returns a number h_w or a tuple of (h,w)
-
-        see https://discuss.pytorch.org/t/utility-function-for-calculating-the-shape-of-a-conv-output/11173/6
-        """
-
-        if ndim(h_w) > 0 and not isinstance(kernel_size, tuple):
-            kernel_size = tuple([kernel_size] * len(h_w))
-
-        if ndim(h_w) > 0 and not isinstance(stride, tuple):
-            stride = tuple([stride] * len(h_w))
-
-        if ndim(h_w) > 0 and not isinstance(pad, tuple):
-            pad = tuple([pad] * len(h_w))
-
-        if not hasattr(h_w, '__len__'):
-            h_w_prime = (h_w - 1) * stride - 2 * pad + kernel_size + pad
-
-        else:
-            h_w_prime = ([
-                (h_w[i] - 1) * stride[i] - 2 * pad[i] + kernel_size[i] + pad[i]
-                for i in range(len(h_w))
-            ])
-
-        return h_w_prime
 
     def forward(self, *x):
         if not self.is_multi_latent():
             x = x[0]
 
-        x = [self._activate(activation=activation, x=layer(xi)).view(self.upscale_shape)
-             for xi, (label, layer, activation, dim) in zip(x, self.latent_stack)]
+        x = [self._activate(activation=activation, x=layer(x[i])).view(self.upscale_shape)
+             for i, (label, layer, activation, dim) in enumerate(self.latent_stack)]
 
-        if self.latent_merge_:
+        if self.latent_merge:
             # merge all latent layers via summation, wrap in single-element list
             x = [torch.stack(x, dim=0).sum(dim=0)]
 
@@ -179,35 +199,37 @@ class ConvDecoder(Decoder):
             for i in range(len(x)):
                 y = layer(x[i])
                 x[i] = self._activate(activation=activation, x=y)
-                # print(x[i].shape, y.shape)  # TODO: correct shaping
 
-        x = torch.stack(x, dim=0).sum(dim=0) if not self.latent_merge_ else x[0]
+        if not self.latent_merge:
+            x = torch.stack(x, dim=0).sum(dim=0)
+            return x
 
-        return x
+        return x[0]
 
 
 if __name__ == '__main__':
 
-    z_dim = (2, )
+    z_shape = 2  # (2, 3)
 
     cnn_decoder = ConvDecoder(
-        latent_dim=z_dim,
-        latent_upscale=(64, 3, 3),
+        latent_shape=z_shape,
+        latent_upscale=(64, 7, 7),
         filters=[64, 64, 32, 1],
-        kernel_size=[3, 4, 4, 3],
+        kernels_size=[3, 4, 4, 3],
         strides=[1, 2, 2, 1],
-        activation='leaky_relu',
+        activation=['leaky_relu', 'leaky_relu', 'leaky_relu', 'sigmoid'],
         latent_merge=True,
         latent_activation=None,
+        padding=1
     )
 
     print(cnn_decoder)
 
-    print('latent shape    :', z_dim)
-    print('input  shape:', cnn_decoder.conv_stack_shape_in)
+    print('latent shape    :', cnn_decoder.latent_shape)
+    print('input  shape    :', cnn_decoder.conv_stack_shape_in)
     print('final conv shape:', cnn_decoder.conv_stack_shape_out)
 
-    x_random = torch.randn(1, *z_dim)
-    y = cnn_decoder(x_random)
+    x_random = tuple(torch.randn(1, zi) for zi in (z_shape if hasattr(z_shape, '__iter__') else [z_shape]))
+    y = cnn_decoder(*x_random)
 
     print('output shape    :', y.shape)
