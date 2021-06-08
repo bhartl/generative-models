@@ -1,4 +1,3 @@
-from __future__ import annotations
 from numpy import ndarray, ndim, product
 import torch.nn as nn
 import torch.cuda
@@ -180,7 +179,7 @@ class ConvDecoder(Decoder):
             for i in range(len(x)):
                 y = layer(x[i])
                 x[i] = self._activate(activation=activation, x=y)
-                print(x[i].shape, y.shape)
+                # print(x[i].shape, y.shape)  # TODO: correct shaping
 
         x = torch.stack(x, dim=0).sum(dim=0) if not self.latent_merge_ else x[0]
 
@@ -195,7 +194,7 @@ if __name__ == '__main__':
         latent_dim=z_dim,
         latent_upscale=(64, 3, 3),
         filters=[64, 64, 32, 1],
-        kernel_size=[3, 3, 3, 3],
+        kernel_size=[3, 4, 4, 3],
         strides=[1, 2, 2, 1],
         activation='leaky_relu',
         latent_merge=True,

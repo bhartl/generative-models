@@ -1,4 +1,3 @@
-from __future__ import annotations
 from numpy import ndarray, ndim, product
 import torch.nn as nn
 import torch.cuda
@@ -66,7 +65,7 @@ class Encoder(nn.Module):
         return self.latent_labels is not None and not isinstance(self.latent_labels, str)
 
     def _set_latent(self, value: torch.tensor):
-        if self.latent_torch is None or self.latent is None:
+        if self._latent_torch is None or self._latent is None:
             if self.latent_labels is None:
                 self._latent_torch = value
 
