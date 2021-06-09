@@ -59,3 +59,10 @@ def conv_transpose_output_shape(h_w, kernel_size=1, stride=1, pad=0):
         ])
 
     return h_w_prime
+
+
+def activate(x, foo=None):
+    if foo is None:
+        return x
+
+    return foo(x)

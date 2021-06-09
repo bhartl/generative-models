@@ -65,7 +65,7 @@ if __name__ == '__main__':
 
     cnn_decoder = ConvDecoder(
         latent_shape=z_dim,
-        latent_upscale=(64, 3, 3),
+        latent_upscale=(64, 7, 7),
         filters=[64, 64, 32, 1],
         kernels_size=[3, 4, 4, 3],
         strides=[1, 2, 2, 1],

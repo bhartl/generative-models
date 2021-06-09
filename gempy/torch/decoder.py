@@ -4,6 +4,7 @@ import torch.cuda
 import torch.tensor
 import torch.nn.functional as F
 from gempy.torch.util import conv_transpose_output_shape
+from gempy.torch.util import activate
 
 
 class Decoder(nn.Module):
@@ -28,12 +29,6 @@ class Decoder(nn.Module):
         except TypeError:
             return None
 
-    @staticmethod
-    def _activate(activation, x):
-        if activation is None:
-            return x
-        return activation(x)
-
 
 class ConvDecoder(Decoder):
     def __init__(self,
@@ -47,6 +42,7 @@ class ConvDecoder(Decoder):
                  latent_activation: (str, None) = None,
                  padding: (int, tuple) = 1,
                  padding_mode: str = 'zeros',
+                 use_dropout: (bool, float) = False,
                  **kwargs):
 
         # setup latent dimensions
@@ -72,6 +68,8 @@ class ConvDecoder(Decoder):
 
         self.padding = padding
         self.padding_mode = padding_mode
+
+        self.use_dropout = use_dropout
 
         # helper variables
         self.conv_stack = None
@@ -160,6 +158,13 @@ class ConvDecoder(Decoder):
             self.conv_stack.append((label, layer, activation, out_shape))
             setattr(self, label, layer)
 
+            if self.use_dropout:
+                label = label.replace('decode_conv_t_', 'drop_')
+                rate = 0.25 if not isinstance(self.use_dropout, float) else self.use_dropout
+                layer = torch.nn.Dropout(rate)
+                self.conv_stack.append((label, layer, None, out_shape))
+                setattr(self, label, layer)
+
             in_channels = f
 
         self.conv_stack_shape_in = in_shape
@@ -187,7 +192,7 @@ class ConvDecoder(Decoder):
         if not self.is_multi_latent():
             x = x[0]
 
-        x = [self._activate(activation=activation, x=layer(x[i])).view(self.upscale_shape)
+        x = [activate(x=layer(x[i]), foo=activation).view(self.upscale_shape)
              for i, (label, layer, activation, dim) in enumerate(self.latent_stack)]
 
         if self.latent_merge:
@@ -198,7 +203,7 @@ class ConvDecoder(Decoder):
             # perform upscale stack on all inputs
             for i in range(len(x)):
                 y = layer(x[i])
-                x[i] = self._activate(activation=activation, x=y)
+                x[i] = activate(x=y, foo=activation)
 
         if not self.latent_merge:
             x = torch.stack(x, dim=0).sum(dim=0)

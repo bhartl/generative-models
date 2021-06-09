@@ -4,7 +4,7 @@ import torch.cuda
 import torch.tensor
 import torch.nn.functional as F
 from gempy.torch.util import conv_output_shape
-
+from gempy.torch.util import activate
 
 class Encoder(nn.Module):
     """ pytorch based encoder: x -> z """
@@ -119,20 +119,21 @@ class ConvEncoder(Encoder):
     def __init__(self,
                  input_shape,
                  filters: (list, tuple),
-                 kernel_size: (list, tuple),
+                 kernels_size: (list, tuple),
                  strides: (list, tuple),
                  latent_dim: (list, tuple, int),
                  activation: (list, tuple, str) = 'relu',
                  latent_activation: (list, tuple, str) = 'sigmoid',
                  padding: (int, tuple) = 1,
                  padding_mode: str = 'zeros',
+                 use_dropout: (bool, float) = False,
                  **kwargs):
 
         self.input_channels = input_shape[0]
         self.input_shape = input_shape[1:]
 
         self.filters = filters
-        self.kernels_size = kernel_size
+        self.kernels_size = kernels_size
         self.strides = strides
 
         self._activation = None
@@ -140,6 +141,8 @@ class ConvEncoder(Encoder):
 
         self.padding = padding
         self.padding_mode = padding_mode
+
+        self.use_dropout = use_dropout
 
         # setup latent dimensions
         self._latent_shape = None
@@ -222,6 +225,13 @@ class ConvEncoder(Encoder):
             self.conv_stack.append((label, layer, activation, out_shape))
             setattr(self, label, layer)
 
+            if self.use_dropout:
+                label = label.replace('conv_', 'drop_')
+                rate = 0.25 if not isinstance(self.use_dropout, float) else self.use_dropout
+                layer = torch.nn.Dropout(rate)
+                self.conv_stack.append((label, layer, None, out_shape))
+                setattr(self, label, layer)
+
             in_channels = f
 
         self.conv_stack_shape_in = in_shape
@@ -262,10 +272,10 @@ class ConvEncoder(Encoder):
     def _torch_forward(self, x) -> torch.tensor:
         for label, layer, activation, out_shape in self.conv_stack:
             y = layer(x)
-            x = activation(y)
+            x = activate(x=y, foo=activation)
 
         x = self.latent_flatten(x)
-        z = tuple([activation(layer(x))
+        z = tuple([activate(x=layer(x), foo=activation)
                    for label, layer, activation, out_shape in self.latent_stack])
 
         if self.latent_labels is None and len(z) == 1:
@@ -281,13 +291,14 @@ if __name__ == '__main__':
     cnn_encoder = ConvEncoder(
         input_shape=input_shape,
         filters=(32, 64, 64, 64),
-        kernel_size=(3, 3, 3, 3),
+        kernels_size=(3, 3, 3, 3),
         strides=(1, 2, 2, 1),
         activation='leaky_relu',
         latent_dim=z_shape,
         # latent_labels=('z', 'mu'),
         latent_labels=None,
         latent_activation='sigmoid',
+        use_dropout=True,
     )
 
     print(cnn_encoder)
