@@ -55,17 +55,17 @@ if __name__ == '__main__':
     cnn_encoder = ConvEncoder(
         input_shape=input_dim,
         filters=(32, 64, 64, 64),
-        kernel_size=(3, 3, 3, 3),
+        kernels_size=(3, 3, 3, 3),
         strides=(1, 2, 2, 1),
         activation='leaky_relu',
-        latent_dim=z_dim,
+        latent_shape=z_dim,
         latent_labels=('z', 'mu', 'a'),
         latent_activation='sigmoid',
     )
 
     cnn_decoder = ConvDecoder(
         latent_shape=z_dim,
-        latent_upscale=(64, 7, 7),
+        latent_upscale=cnn_encoder.conv_stack_shape_out,
         filters=[64, 64, 32, 1],
         kernels_size=[3, 4, 4, 3],
         strides=[1, 2, 2, 1],

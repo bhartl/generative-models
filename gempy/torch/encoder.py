@@ -6,10 +6,15 @@ import torch.nn.functional as F
 from gempy.torch.util import conv_output_shape
 from gempy.torch.util import activate
 
+
 class Encoder(nn.Module):
     """ pytorch based encoder: x -> z """
 
-    def __init__(self, latent_labels: (str, tuple, list, set, None) = 'z', **kwargs):
+    def __init__(self,
+                 latent_shape: (list, tuple, int) = 10,
+                 latent_labels: (str, tuple, list, set, None) = 'z',
+                 latent_activation: (list, tuple, str) = 'sigmoid',
+                 **kwargs):
         """
         :param latent_labels: Label or list of labels, specifying the number of outputs of the encoder (defaults to 'z').
                               This is important for the Variational Auto Encoder, where the Encoder must provide both,
@@ -21,14 +26,43 @@ class Encoder(nn.Module):
         """
         super(Encoder, self).__init__()
 
+        # setup latent dimensions
+        self._latent_shape = None
+        self.latent_shape = latent_shape
+
         self._latent_labels = None
         self.latent_labels = latent_labels
+
+        self._latent_activation = None
+        self.latent_activation = latent_activation
 
         self._latent = None
         self._latent_torch = None
 
         self.kwargs = kwargs
         self._build()
+
+    @property
+    def latent_shape(self) -> (int, tuple, list):
+        return self._latent_shape
+
+    @latent_shape.setter
+    def latent_shape(self, value: (int, tuple, list)):
+        if isinstance(value, int):
+            value = (value,)
+
+        self._latent_shape = value
+
+    @property
+    def latent_activation(self) -> [str]:
+        return self._latent_activation
+
+    @latent_activation.setter
+    def latent_activation(self, value: (str, tuple, list)):
+        if value is None or isinstance(value, str):
+            value = [value] * len(self.latent_shape)
+
+        self._latent_activation = list(value)
 
     def _build(self):
         raise NotImplementedError("build network")
@@ -121,9 +155,7 @@ class ConvEncoder(Encoder):
                  filters: (list, tuple),
                  kernels_size: (list, tuple),
                  strides: (list, tuple),
-                 latent_dim: (list, tuple, int),
                  activation: (list, tuple, str) = 'relu',
-                 latent_activation: (list, tuple, str) = 'sigmoid',
                  padding: (int, tuple) = 1,
                  padding_mode: str = 'zeros',
                  use_dropout: (bool, float) = False,
@@ -144,13 +176,6 @@ class ConvEncoder(Encoder):
 
         self.use_dropout = use_dropout
 
-        # setup latent dimensions
-        self._latent_shape = None
-        self.latent_shape = latent_dim
-
-        self._latent_activation = None
-        self.latent_activation = latent_activation
-
         self.conv_stack = None
         self.conv_stack_shape_out = None
         self.conv_stack_shape_in = None
@@ -158,28 +183,6 @@ class ConvEncoder(Encoder):
         self.latent_stack = None
 
         super(ConvEncoder, self).__init__(**kwargs)
-
-    @property
-    def latent_shape(self) -> (int, tuple, list):
-        return self._latent_shape
-
-    @latent_shape.setter
-    def latent_shape(self, value: (int, tuple, list)):
-        if isinstance(value, int):
-            value = (value,)
-
-        self._latent_shape = value
-
-    @property
-    def latent_activation(self) -> [str]:
-        return self._latent_activation
-
-    @latent_activation.setter
-    def latent_activation(self, value: (str, tuple, list)):
-        if value is None or isinstance(value, str):
-            value = [value] * len(self.latent_shape)
-
-        self._latent_activation = list(value)
 
     @property
     def activation(self) -> [str]:
@@ -294,7 +297,7 @@ if __name__ == '__main__':
         kernels_size=(3, 3, 3, 3),
         strides=(1, 2, 2, 1),
         activation='leaky_relu',
-        latent_dim=z_shape,
+        latent_shape=z_shape,
         # latent_labels=('z', 'mu'),
         latent_labels=None,
         latent_activation='sigmoid',
