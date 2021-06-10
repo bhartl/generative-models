@@ -7,9 +7,13 @@ from gempy.torch.auto_encoder import AutoEncoder
 
 
 class VariationalAutoEncoder(AutoEncoder):
-    """ pytorch based Auto Encoder """
+    """ pytorch based Auto Encoder
 
-    def __init__(self, encoder=Encoder, decoder=Decoder, beta=1.):
+    see `towardsdatascience https://towardsdatascience.com/variational-autoencoder-demystified-with-pytorch
+    -implementation-3a06bee395ed`_
+    """
+
+    def __init__(self, encoder=Encoder, decoder=Decoder, beta=1., log_scale=0.):
         # define model:
         super(VariationalAutoEncoder, self).__init__(encoder=encoder, decoder=decoder)
 
@@ -18,7 +22,7 @@ class VariationalAutoEncoder(AutoEncoder):
         assert self.encoder.latent_shape[0] == self.encoder.latent_shape[1], "two dimensional latent shape required"
 
         # training parameter
-        self.log_scale = torch.nn.Parameter(torch.Tensor([0.0]))
+        self.log_scale = None
 
         # variables
         self.beta = beta
@@ -31,6 +35,9 @@ class VariationalAutoEncoder(AutoEncoder):
 
         # for the gaussian likelihood
         self.p, self.q = None, None
+
+        self.log_scale = torch.nn.Parameter(torch.Tensor([log_scale]), )
+        self.log_scale.requires_grad = False
 
     @property
     def zeros_like(self):
@@ -68,9 +75,7 @@ class VariationalAutoEncoder(AutoEncoder):
 
         # sample z from q
         self.encoding_sample = self.q.rsample()
-
-        self.decoding = self.decoder(self.encoding_sample)
-        return self.decoding
+        return self.decoder(self.encoding_sample)
 
     def gaussian_likelihood(self, x_hat, x):
         scale = torch.exp(self.log_scale)
@@ -100,7 +105,7 @@ class VariationalAutoEncoder(AutoEncoder):
         return kl
 
     def elbo_loss(self, x, x_hat):
-        # reconstruction loss
+        # reconstruction
         recon_loss = self.gaussian_likelihood(x_hat=x_hat, x=x)
 
         # kl
