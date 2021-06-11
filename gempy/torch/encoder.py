@@ -26,14 +26,14 @@ class Encoder(nn.Module):
     """
 
     def __init__(self,
-                 latent_shape: (list, tuple, int) = 2,
+                 latent_dim: (list, tuple, int) = 2,
                  latent_labels: (str, tuple, list, set, None) = 'z',
                  latent_activation: (list, tuple, str) = None,
                  latent_track: bool = False,
                  **kwargs):
         """ Constructs a `Encoder` instance
 
-        :param latent_shape: Integer or tuple of integers, defining the size of each latent dimension (defaults to 2).
+        :param latent_dim: Integer or tuple of integers, defining the size of each latent space output (defaults to 2).
         :param latent_labels: String or list of strings labeling the latent dimensions (defaults to 'z').
                               Labels can be used to retrieve the latent space evaluations in the `latent_torch` or
                               `latent` properties (i.e., dictionaries).
@@ -53,8 +53,8 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
 
         # setup latent dimensions
-        self._latent_shape = None
-        self.latent_shape = latent_shape
+        self._latent_dim = None
+        self.latent_dim = latent_dim
 
         self._latent_labels = None
         self.latent_labels = latent_labels
@@ -75,17 +75,17 @@ class Encoder(nn.Module):
         self._build()
 
     @property
-    def latent_shape(self) -> (int, tuple, list):
-        """ shape of the latent space """
-        return self._latent_shape
+    def latent_dim(self) -> (int, tuple, list):
+        """ number of dimensions per latent space output """
+        return self._latent_dim
 
-    @latent_shape.setter
-    def latent_shape(self, value: (int, tuple, list)):
-        """ shape of the latent space """
+    @latent_dim.setter
+    def latent_dim(self, value: (int, tuple, list)):
+        """ number of dimensions per latent space output """
         if isinstance(value, int):
             value = (value,)
 
-        self._latent_shape = value
+        self._latent_dim = value
 
     @property
     def latent_labels(self) -> (str, tuple, list, set, None):
@@ -99,14 +99,14 @@ class Encoder(nn.Module):
 
     @property
     def latent_activation(self) -> [str]:
-        """ activation function(s) of the latent space """
+        """ activation function(s) of the latent space, can be `None` """
         return self._latent_activation
 
     @latent_activation.setter
     def latent_activation(self, value: (str, tuple, list)):
-        """ activation function(s) of the latent space """
+        """ activation function(s) of the latent space, can be `None` """
         if value is None or isinstance(value, str):
-            value = [value] * len(self.latent_shape)
+            value = [value] * len(self.latent_dim)
 
         self._latent_activation = list(value)
 
@@ -122,17 +122,17 @@ class Encoder(nn.Module):
         'latent_{label_i}' if labels are provided or 'latent_i' otherwise.
         """
         self.latent_stack = []
-        for i, latent_shape in enumerate(self.latent_shape):
+        for i, latent_dim in enumerate(self.latent_dim):
             try:
                 label = self.latent_labels[i]
             except (TypeError, KeyError):
                 label = i
 
             label = f'latent_{label}'
-            layer = torch.nn.Linear(product(self.conv_stack_shape_out), latent_shape)
+            layer = torch.nn.Linear(product(self.conv_stack_shape_out), latent_dim)
             activation = get_activation_function(self.latent_activation[i])
 
-            self.latent_stack.append((label, layer, activation, latent_shape))
+            self.latent_stack.append((label, layer, activation, latent_dim))
             setattr(self, label, layer)
 
     def forward(self, x):
@@ -158,8 +158,8 @@ class Encoder(nn.Module):
         :returns: latent space tensor (if no labels are defined or if only one latent space dimension is present),
                   or tuple of latent space tensors, one for each latent space dimension.
         """
-        z = tuple([call_activation(x=layer(x), foo=activation)
-                   for label, layer, activation, out_shape in self.latent_stack])
+        z = tuple(call_activation(x=layer(x), foo=activation)
+                  for label, layer, activation, out_shape in self.latent_stack)
 
         if self.latent_labels is None and len(z) == 1:
             return z[0]
@@ -167,7 +167,7 @@ class Encoder(nn.Module):
         return z
 
     @property
-    def is_multi_latent(self):
+    def is_multi_latent(self) -> bool:
         """ Boolean describing whether multiple latent space dimensions are present """
         return self.latent_labels is not None and not isinstance(self.latent_labels, str)
 
@@ -262,7 +262,8 @@ class ConvEncoder(Encoder):
                  use_batch_norm: (bool, dict) = False,
                  use_dropout: (bool, float) = False,
                  **kwargs):
-        """
+        """ Constructs a ConvEncoder instance
+
         :param input_shape: list of integers specifying the input shape dimensions (channels, x, y, ...)
                             1D, 2D and 3D convolutions are implemented.
         :param filters: List or tuple of integers, specifying the number of filters per conv layer
@@ -283,7 +284,7 @@ class ConvEncoder(Encoder):
         :param use_dropout: Boolean or float controlling whether dropout layers are used
                             after a Conv (and potential BatchNorm) block. A float value
                             defines the dropout rate, which defaults to 0.25.
-        :param kwargs: Keyword Arguments forwarded to the super constructor
+        :param kwargs: Keyword Arguments forwarded to the super constructor (see Encoder)
         """
 
         self.input_channels = input_shape[0]
@@ -310,12 +311,12 @@ class ConvEncoder(Encoder):
 
     @property
     def activation(self) -> [str]:
-        """ activation function(s) of the convolutioanl layers """
+        """ activation function(s) of the convolutional layers """
         return self._activation
 
     @activation.setter
     def activation(self, value: (str, tuple, list)):
-        """ activation function(s) of the convolutioanl layers """
+        """ activation function(s) of the convolutional layers """
         if value is None or isinstance(value, str):
             value = [value] * len(self.filters)
 
@@ -444,9 +445,8 @@ if __name__ == '__main__':
         kernels_size=(3, 3, 3, 3),
         strides=(1, 2, 2, 1),
         activation='leaky_relu',
-        latent_shape=z_shape,
-        # latent_labels=('z', 'mu'),
-        latent_labels=None,
+        latent_dim=z_shape,
+        latent_labels=None,  # ('z', 'mu'),
         latent_activation='sigmoid',
         use_dropout=True,
     )
@@ -454,7 +454,7 @@ if __name__ == '__main__':
     print(cnn_encoder)
     print('input shape     :', cnn_encoder.conv_stack_shape_in)
     print('final conv shape:', cnn_encoder.conv_stack_shape_out)
-    print('latent shape    :', cnn_encoder.latent_shape)
+    print('latent shape    :', cnn_encoder.latent_dim)
 
     x_random = torch.randn(1, *input_shape)
     y = cnn_encoder(x_random)

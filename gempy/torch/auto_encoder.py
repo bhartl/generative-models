@@ -6,9 +6,30 @@ from gempy.torch.decoder import Decoder
 
 
 class AutoEncoder(torch.nn.Module):
-    """ pytorch based Auto Encoder """
+    """ pytorch based auto encoder: x (feature space) -> z (latent space) -> x_hat (reconstructed)
 
-    def __init__(self, encoder=Encoder, decoder=Decoder):
+    Usage and Inheritance:
+
+    - Inherits from `torch.nn.Module`
+    - `_build` routine is to be overwritten by more specific `AutoEncoder` child-classes to define the network
+    - `_torch_forward` routine is to be overwritten by more specific `AutoEncoder` child-classes
+      to define the tensor flow
+
+    Comments:
+
+    - multiple latent space layers/dimensions are possible
+    - retrieval of evaluations possible via dictionary mapping (if labels are provided)
+    """
+
+    def __init__(self,
+                 encoder: (Encoder, dict),
+                 decoder: (Decoder, dict),
+                 ):
+        """ Constructs a `AutoEncoder` instance
+
+        :param encoder: Encoder instance or dict from which an Encoder instance can be constructed
+        :param decoder: Decoder instance or dict from which an Decoder instance can be constructed
+        """
         super(AutoEncoder, self).__init__()
 
         self.encoder = None
@@ -20,6 +41,12 @@ class AutoEncoder(torch.nn.Module):
         self.set_decoder(decoder)
 
     def set_encoder(self, value: (Encoder, dict)):
+        """ defines the Encoder of the AutoEncoder
+
+        An `encoder` property is set, specifying the Encoder torch model in the AutoEncoder.
+
+        :param value: Encoder instance or dict-representation thereof
+        """
         if isinstance(value, dict):
             self.encoder = Encoder(**value)
             return
@@ -28,6 +55,12 @@ class AutoEncoder(torch.nn.Module):
         self.encoder = value
 
     def set_decoder(self, value: (Decoder, dict)):
+        """ defines the Decoder of the AutoEncoder
+
+        An `decoder` property is set, specifying the Decoder torch model in the AutoEncoder.
+
+        :param value: Decoder instance or dict-representation thereof
+        """
         if isinstance(value, dict):
             self.decoder = Decoder(**value)
             return
@@ -36,21 +69,24 @@ class AutoEncoder(torch.nn.Module):
         self.decoder = value
 
     def forward(self, x):
+        """ torch forward method, reconstructing the input x after compressing it through a bottle-neck latent space
+
+        If the encoder is setup accordingly (via the `latent_track`) switch, the latent-space encoding can be retrieved
+        via the `encoder.latent_torch` or `encoder.latent` properties.
+
+        :param x: torch input tensor
+        :returns: reconstruction x_hat of the input
+        """
         self.encoding = self.encoder(x)
         return self.decoder(*self.encoding)
-
-    def accelerate(self, **kwargs) -> 'AutoEncoder':
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print("Using {} device".format(device))
-        return self.to(device, **kwargs)
 
 
 if __name__ == '__main__':
     from gempy.torch.encoder import ConvEncoder
-    from gempy.torch.decoder import ConvDecoder
+    from gempy.torch.decoder import ConvTDecoder
 
     input_dim = (1, 28, 28)
-    z_dim = (2, 2)
+    z_dim = (2, 3, 4)
 
     cnn_encoder = ConvEncoder(
         input_shape=input_dim,
@@ -58,13 +94,14 @@ if __name__ == '__main__':
         kernels_size=(3, 3, 3, 3),
         strides=(1, 2, 2, 1),
         activation='leaky_relu',
-        latent_shape=z_dim,
+        latent_dim=z_dim,
         latent_labels=('z', 'mu', 'a'),
         latent_activation='sigmoid',
+        latent_track=True
     )
 
-    cnn_decoder = ConvDecoder(
-        latent_shape=z_dim,
+    cnn_decoder = ConvTDecoder(
+        latent_dim=z_dim,
         latent_upscale=cnn_encoder.conv_stack_shape_out,
         filters=[64, 64, 32, 1],
         kernels_size=[3, 4, 4, 3],
@@ -82,7 +119,7 @@ if __name__ == '__main__':
     print(cnn_auto_encoder)
     print('input shape     :', cnn_auto_encoder.encoder.conv_stack_shape_in)
     print('latent shape    :', z_dim)
-    print('output shape    :', cnn_auto_encoder.decoder.conv_stack_shape_out)
+    print('output shape    :', cnn_auto_encoder.decoder.conv_transpose_stack_shape_out)
 
     x_random = torch.randn(1, *input_dim)
     y = cnn_auto_encoder(x_random)

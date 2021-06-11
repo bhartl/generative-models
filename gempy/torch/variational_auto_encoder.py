@@ -7,7 +7,14 @@ from gempy.torch.auto_encoder import AutoEncoder
 
 
 class VariationalAutoEncoder(AutoEncoder):
-    """ pytorch based Auto Encoder
+    """ pytorch based Variational Auto Encoder
+
+    Tries to reconstruct an input x -> (mu, log_var) ~ z -> x_hat
+
+    - via an encoding step, predicting the mean (mu) and the confidence (log variance)
+      of a datapoint x in the latent space
+    - sampling a random number from the normal distribution (mu, std=exp(log_var/2))
+    - reconstructing x from z through a decoder
 
     References:
 
@@ -17,21 +24,33 @@ class VariationalAutoEncoder(AutoEncoder):
     """
 
     def __init__(self,
-                 encoder=Encoder,
-                 decoder=Decoder,
-                 beta=1.,
-                 log_scale=0.,
-                 reconstruction_loss='mse_reconstruction_loss',
+                 encoder: (Encoder, dict),
+                 decoder: (Decoder, dict),
+                 beta: float = 1.,
+                 log_scale: float = 0.,
+                 reconstruction_loss: (str, callable) = 'mse_reconstruction_loss',
                  ):
-        # define model:
+        """ Constructs a VAE instance
+
+        :param encoder: Encoder instance or dict, specifying an `AutoEncoder - Encoder` argument
+                        (in case of a provided dict, an Encoder instance will be initialized).
+        :param decoder: Decoder instance or dict, specifying an `AutoEncoder - Decoder` argument
+                        (in case of a provided dict, an Decoder instance will be initialized).
+        :param reconstruction_loss: String or callable defining the reconstruction loss (with arguments (x_hat, x),
+                                    defaults to 'mse_reconstruction_loss'.
+                                    In case of a provided str argument, a VAE-method with the specified name
+                                    will be used.
+        :param beta: Reconstruction loss weighting factor in the loss function (with respect to the KL divergence).
+        :param log_scale: Log scale in case of `gaussian_likelihood' reconstruction loss (defaults to 0.)
+        """
+
+        # init and build model:
         super(VariationalAutoEncoder, self).__init__(encoder=encoder, decoder=decoder)
 
-        assert not isinstance(self.encoder.latent_shape, int), "two dimensional latent shape required"
-        assert len(self.encoder.latent_shape) == 2, "two dimensional latent shape required"
-        assert self.encoder.latent_shape[0] == self.encoder.latent_shape[1], "two dimensional latent shape required"
-
-        # training parameter
-        self.log_scale = None
+        # check VAE latent space requirements
+        assert not isinstance(self.encoder.latent_dim, int), "two dimensional latent shape required"
+        assert len(self.encoder.latent_dim) == 2, "two dimensional latent shape required"
+        assert self.encoder.latent_dim[0] == self.encoder.latent_dim[1], "two dimensional latent shape required"
 
         # variables
         self.beta = beta
@@ -47,19 +66,24 @@ class VariationalAutoEncoder(AutoEncoder):
 
         self.reconstruction_loss = getattr(self, reconstruction_loss, reconstruction_loss)
 
+        # training parameter in case of 'gaussian_likelihood' reconstruction_loss
+        self.log_scale = None
         self.log_scale = torch.nn.Parameter(torch.Tensor([log_scale]), )
         self.log_scale.requires_grad = False
 
+        # different loss variables
         self.r_loss = None
         self.kl_loss = None
         self.elbo_loss = None
 
     @property
     def zeros_like(self):
+        """ torch zeros tensor with shape of latent space mu dimension """
         return self._zero
 
     @zeros_like.setter
-    def zeros_like(self, value):
+    def zeros_like(self, value: torch.tensor):
+        """ torch zeros tensor with shape of latent space mu dimension """
         try:
             assert self._zero.shape == value.shape
 
@@ -67,18 +91,25 @@ class VariationalAutoEncoder(AutoEncoder):
             self._zero = torch.zeros_like(value)
 
     @property
-    def ones_like(self):
+    def ones_like(self) -> torch.tensor:
+        """ torch ones tensor with shape of latent space log_var dimension """
         return self._one
 
     @ones_like.setter
-    def ones_like(self, value):
+    def ones_like(self, value: torch.tensor) -> torch.tensor:
+        """ torch ones tensor with shape of latent space log_var dimension """
         try:
             assert self._one.shape == value.shape
 
         except (AssertionError, AttributeError):
             self._one = torch.ones_like(value)
 
-    def forward(self, x):
+    def forward(self, x: torch.tensor) -> torch.tensor:
+        """ pytorch forward evaluation method
+
+        :param x: input tensors
+        :returns: reconstructed inputs with a stochastic sampling step in the latent space
+        """
 
         # encode x to get the mu and variance parameters
         self.encoding = self.encoder(x)
@@ -93,9 +124,14 @@ class VariationalAutoEncoder(AutoEncoder):
         return self.decoder(self.encoding_sample)
 
     def mse_reconstruction_loss(self, x_hat, x):
+        """ Mean Square Error - reconstruction loss """
         return torch.nn.MSELoss()(x, x_hat)
 
     def gaussian_likelihood(self, x_hat, x):
+        """ negative Gaussian Likelihood reconstruction loss: -log(p(x|z))
+
+        measure prob of seeing x_hat under p(x|z)
+        """
         scale = torch.exp(self.log_scale)
         dist = torch.distributions.Normal(x_hat, scale)
 
@@ -105,6 +141,7 @@ class VariationalAutoEncoder(AutoEncoder):
 
     def kl_divergence(self, z):
         """ Monte Carlo KL divergence
+
         :param z: sampled encodings
         """
 
@@ -122,7 +159,12 @@ class VariationalAutoEncoder(AutoEncoder):
 
         return kl
 
-    def loss(self, x, x_hat):
+    def loss(self, x: torch.tensor, x_hat: torch.tensor) -> torch.tensor:
+        """ total loss function of the VAE
+
+        consists of `mean(KL_loss + beta * r_loss)`
+        """
+
         # reconstruction
         r_loss = self.reconstruction_loss(x_hat=x_hat, x=x)
 
@@ -137,6 +179,11 @@ class VariationalAutoEncoder(AutoEncoder):
         return self.elbo_loss
 
     def training_step(self, x):
+        """ VAE forward and loss evaluation on input x
+
+        :param x: torch input tensor
+        :returns: tuple of (x_hat, loss), i.e., reconstructed input x and corresponding loss function
+        """
         x_hat = self(x)  # get decoding
         loss = self.loss(x=x, x_hat=x_hat)
         return x_hat, loss
@@ -144,7 +191,7 @@ class VariationalAutoEncoder(AutoEncoder):
 
 if __name__ == '__main__':
     from gempy.torch.encoder import ConvEncoder
-    from gempy.torch.decoder import ConvDecoder
+    from gempy.torch.decoder import ConvTDecoder
 
     input_dim = (1, 28, 28)
     z_dim = (2, 2)
@@ -155,14 +202,14 @@ if __name__ == '__main__':
         kernels_size=(3, 3, 3, 3),
         strides=(1, 2, 2, 1),
         activation='leaky_relu',
-        latent_shape=z_dim,
-        latent_labels=('mu', 'log_var'),
+        latent_dim=z_dim,
+        latent_labels=('mu', 'log_var'),  # None,  #
         latent_activation=None,
         latent_track=True
     )
 
-    cnn_decoder = ConvDecoder(
-        latent_shape=z_dim[0],
+    cnn_decoder = ConvTDecoder(
+        latent_dim=z_dim[0],
         latent_upscale=(64, 7, 7),
         filters=[64, 64, 32, 1],
         kernels_size=[3, 4, 4, 3],
@@ -172,20 +219,20 @@ if __name__ == '__main__':
         latent_activation=None,
     )
 
-    cnn_vae = VariationalAutoEncoder(
-        encoder=cnn_encoder,
-        decoder=cnn_decoder,
-        beta=1.
-    )
+    cnn_vae = VariationalAutoEncoder(encoder=cnn_encoder, decoder=cnn_decoder, beta=1.)
 
     print(cnn_vae)
     print('input shape     :', cnn_vae.encoder.conv_stack_shape_in)
-    print('latent shape    :', cnn_vae.encoder.latent_shape)
-    print('output shape    :', cnn_vae.decoder.conv_stack_shape_out)
+    print('latent shape    :', cnn_vae.encoder.latent_dim)
+    print('output shape    :', cnn_vae.decoder.conv_transpose_stack_shape_out)
 
     x_random = torch.randn(10, *input_dim)
     y, loss = cnn_vae.training_step(x_random)
 
-    print('latent space    :', {k: v.shape for k, v in cnn_encoder.latent_torch.items()})
+    try:
+        print('latent space    :', {k: v.shape for k, v in cnn_encoder.latent_torch.items()})
+    except AttributeError:
+        print('latent space    :', tuple(v.shape for v in cnn_encoder.latent_torch))
+
     print('output shape    :', y.shape)
     print('elbo loss       :', loss)

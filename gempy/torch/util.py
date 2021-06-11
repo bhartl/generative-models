@@ -5,11 +5,10 @@ import torch.nn.functional as F
 
 
 def conv_output_shape(h_w, kernel_size=1, stride=1, pad=0, dilation=1):
-    """
-    Utility function for computing output of convolutions
-    takes a number h_w or a tuple of (h,w) and returns a number h_w or a tuple of (h,w)
+    """ Utility function for computing output of convolutions
+        takes a number h_w or a tuple of (h,w) and returns a number h_w or a tuple of (h,w)
 
-    see https://discuss.pytorch.org/t/utility-function-for-calculating-the-shape-of-a-conv-output/11173/6
+    see `pytorch discussion <https://discuss.pytorch.org/t/utility-function-for-calculating-the-shape-of-a-conv-output/11173/6>`_
     """
 
     if ndim(h_w) > 0 and not isinstance(kernel_size, tuple):
@@ -34,11 +33,10 @@ def conv_output_shape(h_w, kernel_size=1, stride=1, pad=0, dilation=1):
 
 
 def conv_transpose_output_shape(h_w, kernel_size=1, stride=1, pad=0):
-    """
-    Utility function for computing output of transposed convolutions
-    takes a number h_w or a tuple of (h,w) and returns a number h_w or a tuple of (h,w)
+    """ Utility function for computing output of transposed convolutions
+        takes a number h_w or a tuple of (h,w) and returns a number h_w or a tuple of (h,w)
 
-    see https://discuss.pytorch.org/t/utility-function-for-calculating-the-shape-of-a-conv-output/11173/6
+    see `pytorch discussion <https://discuss.pytorch.org/t/utility-function-for-calculating-the-shape-of-a-conv-output/11173/6>`_
     """
 
     if ndim(h_w) > 0 and not isinstance(kernel_size, tuple):
@@ -65,6 +63,9 @@ def conv_transpose_output_shape(h_w, kernel_size=1, stride=1, pad=0):
 
 
 def get_layer_nd(dim, layer_prefix='Conv'):
+    """ get an n-dimensional layer with a given layer_prefix (e.g. 'Conv', 'ConvTranspose' or 'BatchNorm',
+        from the torch.nn module by specifying the dimension. """
+
     if len(dim) == 1:
         layer_nd = getattr(nn, f'{layer_prefix}1d')
 
@@ -81,18 +82,23 @@ def get_layer_nd(dim, layer_prefix='Conv'):
 
 
 def get_conv_nd(dim):
+    """ get an n-dimensional Conv layer from the torch.nn module by specifying the dimension. """
     return get_layer_nd(dim, layer_prefix='Conv')
 
 
 def get_conv_transpose_nd(dim):
+    """ get an n-dimensional ConvTranspose layer from the torch.nn module by specifying the dimension. """
     return get_layer_nd(dim, layer_prefix='ConvTranspose')
 
 
 def get_batch_norm_nd(dim):
+    """ get an n-dimensional BatchNorm layer from the torch.nn module by specifying the dimension. """
     return get_layer_nd(dim, layer_prefix='BatchNorm')
 
 
-def get_activation_function(activation):
+def get_activation_function(activation: str):
+    """ get a callable activation function from the torch framework or from the torch.nn.functional
+    module by str representation. Per default and on error None is returned. """
     try:
         return getattr(torch, activation, getattr(F, activation, None))
     except TypeError:
@@ -100,6 +106,7 @@ def get_activation_function(activation):
 
 
 def call_activation(x, foo=None):
+    """ return result of an activation function `foo` on the input `x`, return `x` if `foo is None` """
     if foo is None:
         return x
 
