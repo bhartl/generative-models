@@ -9,11 +9,20 @@ from gempy.torch.auto_encoder import AutoEncoder
 class VariationalAutoEncoder(AutoEncoder):
     """ pytorch based Auto Encoder
 
-    see `towardsdatascience https://towardsdatascience.com/variational-autoencoder-demystified-with-pytorch
-    -implementation-3a06bee395ed`_
+    References:
+
+    - see `deep generative learning <https://www.oreilly.com/library/view/generative-deep-learning/9781492041931/>`_
+    - see `towardsdatascience <https://towardsdatascience.com/variational-autoencoder-demystified-with-pytorch
+    -implementation-3a06bee395ed>`_
     """
 
-    def __init__(self, encoder=Encoder, decoder=Decoder, beta=1., log_scale=0.):
+    def __init__(self,
+                 encoder=Encoder,
+                 decoder=Decoder,
+                 beta=1.,
+                 log_scale=0.,
+                 reconstruction_loss='mse_reconstruction_loss',
+                 ):
         # define model:
         super(VariationalAutoEncoder, self).__init__(encoder=encoder, decoder=decoder)
 
@@ -36,8 +45,14 @@ class VariationalAutoEncoder(AutoEncoder):
         # for the gaussian likelihood
         self.p, self.q = None, None
 
+        self.reconstruction_loss = getattr(self, reconstruction_loss, reconstruction_loss)
+
         self.log_scale = torch.nn.Parameter(torch.Tensor([log_scale]), )
         self.log_scale.requires_grad = False
+
+        self.r_loss = None
+        self.kl_loss = None
+        self.elbo_loss = None
 
     @property
     def zeros_like(self):
@@ -70,12 +85,15 @@ class VariationalAutoEncoder(AutoEncoder):
         self.mu, self.log_var = self.encoding
         self.std = torch.exp(self.log_var * 0.5)
 
-        # define the firstNormal distribution of encoder
+        # define the Normal distribution of encoder
         self.q = torch.distributions.Normal(self.mu, self.std)
 
         # sample z from q
         self.encoding_sample = self.q.rsample()
         return self.decoder(self.encoding_sample)
+
+    def mse_reconstruction_loss(self, x_hat, x):
+        return torch.nn.MSELoss()(x, x_hat)
 
     def gaussian_likelihood(self, x_hat, x):
         scale = torch.exp(self.log_scale)
@@ -83,7 +101,7 @@ class VariationalAutoEncoder(AutoEncoder):
 
         # measure prob of seeing image under p(x|z)
         log_pxz = dist.log_prob(x)
-        return log_pxz.sum(dim=(1, 2, 3))
+        return -log_pxz.sum(dim=(1, 2, 3))
 
     def kl_divergence(self, z):
         """ Monte Carlo KL divergence
@@ -104,22 +122,23 @@ class VariationalAutoEncoder(AutoEncoder):
 
         return kl
 
-    def elbo_loss(self, x, x_hat):
+    def loss(self, x, x_hat):
         # reconstruction
-        recon_loss = self.gaussian_likelihood(x_hat=x_hat, x=x)
+        r_loss = self.reconstruction_loss(x_hat=x_hat, x=x)
 
         # kl
-        kl = self.kl_divergence(z=self.encoding_sample)
+        kl_loss = self.kl_divergence(z=self.encoding_sample)
 
         # elbo
-        elbo = (kl - self.beta * recon_loss)
-        elbo = elbo.mean()
+        self.kl_loss = kl_loss.mean()
+        self.r_loss = r_loss.mean()
+        self.elbo_loss = (self.kl_loss + self.beta * self.r_loss).mean()
 
-        return elbo
+        return self.elbo_loss
 
     def training_step(self, x):
         x_hat = self(x)  # get decoding
-        loss = self.elbo_loss(x=x, x_hat=x_hat)
+        loss = self.loss(x=x, x_hat=x_hat)
         return x_hat, loss
 
 
@@ -139,6 +158,7 @@ if __name__ == '__main__':
         latent_shape=z_dim,
         latent_labels=('mu', 'log_var'),
         latent_activation=None,
+        latent_track=True
     )
 
     cnn_decoder = ConvDecoder(
@@ -163,9 +183,9 @@ if __name__ == '__main__':
     print('latent shape    :', cnn_vae.encoder.latent_shape)
     print('output shape    :', cnn_vae.decoder.conv_stack_shape_out)
 
-    x_random = torch.randn(1, *input_dim)
+    x_random = torch.randn(10, *input_dim)
     y, loss = cnn_vae.training_step(x_random)
 
-    print('latent space    :', cnn_encoder.latent_torch)
+    print('latent space    :', {k: v.shape for k, v in cnn_encoder.latent_torch.items()})
     print('output shape    :', y.shape)
     print('elbo loss       :', loss)

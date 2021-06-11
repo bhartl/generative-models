@@ -1,4 +1,7 @@
 from numpy import ndim
+import torch
+from torch import nn
+import torch.nn.functional as F
 
 
 def conv_output_shape(h_w, kernel_size=1, stride=1, pad=0, dilation=1):
@@ -61,7 +64,42 @@ def conv_transpose_output_shape(h_w, kernel_size=1, stride=1, pad=0):
     return h_w_prime
 
 
-def activate(x, foo=None):
+def get_layer_nd(dim, layer_prefix='Conv'):
+    if len(dim) == 1:
+        layer_nd = getattr(nn, f'{layer_prefix}1d')
+
+    elif len(dim) == 2:
+        layer_nd = getattr(nn, f'{layer_prefix}2d')
+
+    elif len(dim) == 3:
+        layer_nd = getattr(nn, f'{layer_prefix}3d')
+
+    else:
+        raise AssertionError("input_shape must be in (1, 2, 3)")
+
+    return layer_nd
+
+
+def get_conv_nd(dim):
+    return get_layer_nd(dim, layer_prefix='Conv')
+
+
+def get_conv_transpose_nd(dim):
+    return get_layer_nd(dim, layer_prefix='ConvTranspose')
+
+
+def get_batch_norm_nd(dim):
+    return get_layer_nd(dim, layer_prefix='BatchNorm')
+
+
+def get_activation_function(activation):
+    try:
+        return getattr(torch, activation, getattr(F, activation, None))
+    except TypeError:
+        return None
+
+
+def call_activation(x, foo=None):
     if foo is None:
         return x
 
