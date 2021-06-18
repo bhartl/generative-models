@@ -42,3 +42,4 @@ venv
 lightning_logs
 node_modules
 *.zip
+examples/worldmodels
