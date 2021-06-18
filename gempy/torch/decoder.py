@@ -1,9 +1,8 @@
-import numpy
-import numpy as np
 from numpy import product
 import torch.nn as nn
 import torch.cuda
 import torch.tensor
+from gempy.decoder import Decoder as ABCDecoder
 from gempy.torch.util import get_conv_transpose_nd
 from gempy.torch.util import get_batch_norm_nd
 from gempy.torch.util import conv_transpose_output_shape
@@ -12,7 +11,7 @@ from gempy.torch.util import get_activation_function
 from functools import partial
 
 
-class Decoder(nn.Module):
+class Decoder(ABCDecoder, nn.Module):
     """ pytorch based decoder: z (latent space) -> x_hat (reconstructed feature space)
 
     Usage and Inheritance:
@@ -42,52 +41,13 @@ class Decoder(nn.Module):
                              or whether each latent space output should be upscaled independently.
         :param kwargs: Additional keyword arguments.
         """
-        super(Decoder, self).__init__()
-
-        # setup latent dimensions
-        self._latent_dim = None
-        self.latent_dim = latent_dim
-
-        self.latent_upscale = latent_upscale
-        self.latent_merge = latent_merge  # whether to merge the latent or the final tensors
-
-        self._latent_activation = None
-        self.latent_activation = latent_activation
-
-        self.upscale_channels = latent_upscale[0]
-        self.upscale_dim = latent_upscale[1:]
-        self.upscale_shape = (-1, self.upscale_channels, *self.upscale_dim)
-
-        self.latent_stack = None
-
-        self.kwargs = kwargs
-        self._build()
-
-    @property
-    def latent_dim(self) -> (int, tuple, list):
-        """ number of dimensions per latent space output """
-        return self._latent_dim
-
-    @latent_dim.setter
-    def latent_dim(self, value: (int, tuple, list)):
-        """ number of dimensions per latent space output """
-        if isinstance(value, int):
-            value = (value,)
-
-        self._latent_dim = value
-
-    @property
-    def latent_activation(self) -> [str]:
-        """ activation function(s) of the latent space, can be `None` """
-        return self._latent_activation
-
-    @latent_activation.setter
-    def latent_activation(self, value: (str, tuple, list)):
-        """ activation function(s) of the latent space, can be `None` """
-        if value is None or isinstance(value, str):
-            value = [value] * len(self.latent_dim)
-
-        self._latent_activation = list(value)
+        nn.Module.__init__(self)
+        ABCDecoder.__init__(self,
+                            latent_dim=latent_dim,
+                            latent_upscale=latent_upscale,
+                            latent_activation=latent_activation,
+                            latent_merge=latent_merge,
+                            **kwargs)
 
     def _build(self):
         """ helper function to build the network:
@@ -118,11 +78,6 @@ class Decoder(nn.Module):
             self.latent_stack.append((label, layer, activation, self.latent_upscale))
             setattr(self, label, layer)
 
-    @property
-    def is_multi_latent(self) -> bool:
-        """ Boolean describing whether multiple latent space dimensions are present """
-        return hasattr(self._latent_dim, '__iter__')
-
     def forward(self, *x: (tuple, torch.tensor)) -> (list, torch.tensor):
         """ pytorch forward-method performing the encoding.
 
@@ -135,6 +90,13 @@ class Decoder(nn.Module):
 
         x = tuple(call_activation(x=layer(x[i]), foo=activation).view(self.upscale_shape)
                   for i, (label, layer, activation, dim) in enumerate(self.latent_stack))
+
+        # x_decode = []
+        # for i, (label, layer, activation, dim) in enumerate(self.latent_stack):
+        #     print(x.shape, i)
+        #     xi = call_activation(x=layer(x[i]), foo=activation).view(self.upscale_shape)
+        #     x_decode.append(xi)
+        # x = x_decode
 
         if self.latent_merge:
             x = torch.stack(x, dim=0).sum(dim=0)
@@ -207,9 +169,9 @@ class ConvTDecoder(Decoder):
         self.use_batch_norm = use_batch_norm
 
         # helper variables
-        self.conv_transpose_stack = None
-        self.conv_transpose_stack_shape_in = None
-        self.conv_transpose_stack_shape_out = None
+        self.deconv_stack = None
+        self.deconv_stack_shape_in = None
+        self.deconv_stack_shape_out = None
 
         super(ConvTDecoder, self).__init__(**kwargs)
 
@@ -262,7 +224,7 @@ class ConvTDecoder(Decoder):
         # call latent upscale decoder build
         Decoder._build(self)
 
-        self.conv_transpose_stack = []
+        self.deconv_stack = []
         conv_t = partial(get_conv_transpose_nd(self.upscale_dim), padding=self.padding, padding_mode=self.padding_mode)
         batch_norm = get_batch_norm_nd(self.upscale_dim)
 
@@ -280,7 +242,7 @@ class ConvTDecoder(Decoder):
             # 1.) Add ConvTranspose layer
             f, k, s, a = self.filters[i], self.kernels_size[i], self.strides[i], self.activation[i]
 
-            label = f'decode_conv_t_{i}'
+            label = f'deconv_{i}'
             layer = conv_t(in_channels=in_channels, out_channels=f, kernel_size=k, stride=s)
             activation = get_activation_function(a) if (not self.use_batch_norm or i == n_conv - 1) else None
 
@@ -291,34 +253,34 @@ class ConvTDecoder(Decoder):
                               for xyz in (shape_lists if hasattr(shape_lists, '__iter__') else [shape_lists])])
 
             # add to conv-transpose layer stack
-            self.conv_transpose_stack.append((label, layer, activation, out_shape))
+            self.deconv_stack.append((label, layer, activation, out_shape))
 
             # set as property (pytorch specific)
             setattr(self, label, layer)
 
             # 2.) Add batch normalization layer
             if self.use_batch_norm and i < n_conv - 1:
-                batch_norm_label = label.replace('decode_conv_t_', 'decode_batch_norm_')
+                batch_norm_label = label.replace('deconv_', 'debatch_norm_')
                 batch_norm_kwargs = self.use_batch_norm if isinstance(self.use_batch_norm, dict) else {}
                 batch_norm_layer = batch_norm(num_features=f, **batch_norm_kwargs)
                 batch_norm_activation = get_activation_function(a)
-                self.conv_transpose_stack.append((batch_norm_label, batch_norm_layer, batch_norm_activation, out_shape))
+                self.deconv_stack.append((batch_norm_label, batch_norm_layer, batch_norm_activation, out_shape))
                 setattr(self, batch_norm_label, batch_norm_layer)
 
             # 3.) Add dropout layer
             if self.use_dropout and i < n_conv - 1:
-                dropout_label = label.replace('decode_conv_t_', 'decode_drop_')
+                dropout_label = label.replace('deconv_', 'dedrop_')
                 rate = 0.25 if not isinstance(self.use_dropout, float) else self.use_dropout
                 dropout_layer = torch.nn.Dropout(rate)
-                self.conv_transpose_stack.append((dropout_label, dropout_layer, None, out_shape))
+                self.deconv_stack.append((dropout_label, dropout_layer, None, out_shape))
                 setattr(self, dropout_label, dropout_layer)
 
             # the out channels from the current stack become the in channels from the next stack
             in_channels = f
 
         # remember the input and final output shape of the conv-transpose stacks
-        self.conv_transpose_stack_shape_in = in_shape
-        self.conv_transpose_stack_shape_out = out_shape
+        self.deconv_stack_shape_in = in_shape
+        self.deconv_stack_shape_out = out_shape
 
     def forward(self, *x):
         """ torch forward method,
@@ -333,7 +295,7 @@ class ConvTDecoder(Decoder):
         # all latent layers merged by decoder, wrap in single-element tuple
         x = [x] if self.latent_merge else list(x)
 
-        for label, layer, activation, out_shape in self.conv_transpose_stack:
+        for label, layer, activation, out_shape in self.deconv_stack:
             # perform upscale stack on all inputs
             for i in range(len(x)):
                 y = layer(x[i])
@@ -365,8 +327,8 @@ if __name__ == '__main__':
     print(cnn_decoder)
 
     print('latent shape    :', cnn_decoder.latent_dim)
-    print('input  shape    :', cnn_decoder.conv_stack_shape_in)
-    print('final conv shape:', cnn_decoder.conv_stack_shape_out)
+    print('input  shape    :', cnn_decoder.deconv_stack_shape_in)
+    print('final conv shape:', cnn_decoder.deconv_stack_shape_out)
 
     x_random = tuple(torch.randn(1, zi) for zi in (z_shape if hasattr(z_shape, '__iter__') else [z_shape]))
     y = cnn_decoder(*x_random)

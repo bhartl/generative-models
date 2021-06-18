@@ -1,3 +1,16 @@
 numpy
 matplotlib
 numba
+argh
+# for torch auto-encoder
+torch
+torchvision
+# world-model example
+gym~=0.18.3
+pytorch-lightning
+scipy
+scikit-image
+# for car-racing open-gym environment
+box2d
+pyglet
+h5py

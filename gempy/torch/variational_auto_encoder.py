@@ -29,6 +29,7 @@ class VariationalAutoEncoder(AutoEncoder):
                  beta: float = 1.,
                  log_scale: float = 0.,
                  reconstruction_loss: (str, callable) = 'mse_reconstruction_loss',
+                 **kwargs
                  ):
         """ Constructs a VAE instance
 
@@ -45,7 +46,7 @@ class VariationalAutoEncoder(AutoEncoder):
         """
 
         # init and build model:
-        super(VariationalAutoEncoder, self).__init__(encoder=encoder, decoder=decoder)
+        super(VariationalAutoEncoder, self).__init__(encoder=encoder, decoder=decoder, **kwargs)
 
         # check VAE latent space requirements
         assert not isinstance(self.encoder.latent_dim, int), "two dimensional latent shape required"
@@ -59,7 +60,7 @@ class VariationalAutoEncoder(AutoEncoder):
         self.encoding_sample = None
 
         self.mu, self.log_var, self.std = None, None, None
-        self._zero, _one = None, None
+        self._zero, self._one = None, None
 
         # for the gaussian likelihood
         self.p, self.q = None, None
@@ -178,15 +179,29 @@ class VariationalAutoEncoder(AutoEncoder):
 
         return self.elbo_loss
 
-    def training_step(self, x):
+    def training_step(self, batch, batch_idx=None):
         """ VAE forward and loss evaluation on input x
 
         :param x: torch input tensor
         :returns: tuple of (x_hat, loss), i.e., reconstructed input x and corresponding loss function
         """
-        x_hat = self(x)  # get decoding
+        x, y = batch
+        x_hat = self.forward(x)  # get decoding
         loss = self.loss(x=x, x_hat=x_hat)
-        return x_hat, loss
+        self.log('loss', loss)
+        self.log('r_loss', self.r_loss)
+        self.log('KL_loss', self.kl_loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx=None):
+        # validation_step defines the train loop. It is independent of forward
+        x, _ = batch
+        x_hat = self.forward(x)  # get decoding
+        loss = self.loss(x=x, x_hat=x_hat)
+        self.log('val_loss', loss)
+        self.log('val_r_loss', self.r_loss)
+        self.log('val_KL_loss', self.kl_loss)
+        return loss
 
 
 if __name__ == '__main__':
@@ -224,10 +239,11 @@ if __name__ == '__main__':
     print(cnn_vae)
     print('input shape     :', cnn_vae.encoder.conv_stack_shape_in)
     print('latent shape    :', cnn_vae.encoder.latent_dim)
-    print('output shape    :', cnn_vae.decoder.conv_transpose_stack_shape_out)
+    print('output shape    :', cnn_vae.decoder.deconv_stack_shape_out)
 
     x_random = torch.randn(10, *input_dim)
-    y, loss = cnn_vae.training_step(x_random)
+    y = cnn_vae.forward(x_random)
+    loss = cnn_vae.training_step((x_random, None))
 
     try:
         print('latent space    :', {k: v.shape for k, v in cnn_encoder.latent_torch.items()})

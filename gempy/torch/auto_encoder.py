@@ -1,11 +1,13 @@
 from __future__ import annotations
-import torch.cuda
 import torch.nn
+import torch.nn.functional as F
+import pytorch_lightning as pl
 from gempy.torch.encoder import Encoder
 from gempy.torch.decoder import Decoder
 
 
-class AutoEncoder(torch.nn.Module):
+class AutoEncoder(pl.LightningModule):
+
     """ pytorch based auto encoder: x (feature space) -> z (latent space) -> x_hat (reconstructed)
 
     Usage and Inheritance:
@@ -24,11 +26,15 @@ class AutoEncoder(torch.nn.Module):
     def __init__(self,
                  encoder: (Encoder, dict),
                  decoder: (Decoder, dict),
+                 learning_rate: float = 1e-3,
+                 batch_size: int = 1,
                  ):
-        """ Constructs a `AutoEncoder` instance
+        """ Constructs an `AutoEncoder` instance
 
         :param encoder: Encoder instance or dict from which an Encoder instance can be constructed
         :param decoder: Decoder instance or dict from which an Decoder instance can be constructed
+        :param learning_rate: Learning rate (float, defaults to 1e-3)
+        :param batch_size: Batch-size (int, defaults to 1)
         """
         super(AutoEncoder, self).__init__()
 
@@ -39,6 +45,12 @@ class AutoEncoder(torch.nn.Module):
 
         self.decoder = None
         self.set_decoder(decoder)
+
+        self.learning_rate = learning_rate
+        self.batch_size = batch_size
+
+        self._train_dataloader = None
+        self._val_dataloader = None
 
     def set_encoder(self, value: (Encoder, dict)):
         """ defines the Encoder of the AutoEncoder
@@ -80,6 +92,38 @@ class AutoEncoder(torch.nn.Module):
         self.encoding = self.encoder(x)
         return self.decoder(*self.encoding)
 
+    def training_step(self, batch, batch_idx=None):
+        # training_step defines the train loop. It is independent of forward
+        x, _ = batch
+        x_hat = self.forward(x)
+        loss = F.mse_loss(x_hat, x)
+        self.log('train_loss', loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx=None):
+        # validation_step defines the train loop. It is independent of forward
+        x, _ = batch
+        x_hat = self.forward(x)
+        loss = F.mse_loss(x_hat, x)
+        self.log('val_loss', loss)
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        return optimizer
+
+    def train_dataloader(self):
+        return self._train_dataloader
+
+    def set_train_dataloader(self, value):
+        self._train_dataloader = value
+
+    def val_dataloader(self):
+        return self._val_dataloader
+
+    def set_val_dataloader(self, value):
+        self._val_dataloader = value
+
 
 if __name__ == '__main__':
     from gempy.torch.encoder import ConvEncoder
@@ -119,7 +163,7 @@ if __name__ == '__main__':
     print(cnn_auto_encoder)
     print('input shape     :', cnn_auto_encoder.encoder.conv_stack_shape_in)
     print('latent shape    :', z_dim)
-    print('output shape    :', cnn_auto_encoder.decoder.conv_transpose_stack_shape_out)
+    print('output shape    :', cnn_auto_encoder.decoder.deconv_stack_shape_out)
 
     x_random = torch.randn(1, *input_dim)
     y = cnn_auto_encoder(x_random)

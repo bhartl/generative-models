@@ -1,7 +1,8 @@
-from numpy import ndarray, ndim, product
+from numpy import ndarray, product
 import torch.nn as nn
 import torch.cuda
 import torch.tensor
+from gempy.encoder import Encoder as ABCEncoder
 from gempy.torch.util import get_conv_nd
 from gempy.torch.util import get_batch_norm_nd
 from gempy.torch.util import conv_output_shape
@@ -10,7 +11,7 @@ from gempy.torch.util import get_activation_function
 from functools import partial
 
 
-class Encoder(nn.Module):
+class Encoder(ABCEncoder, nn.Module):
     """ pytorch based encoder: x (feature space) -> z (latent space)
 
     Usage and Inheritance:
@@ -50,65 +51,16 @@ class Encoder(nn.Module):
                              `latent_torch` properties.
         :param kwargs: Additional kwargs which might be used.
         """
-        super(Encoder, self).__init__()
+        nn.Module.__init__(self)
 
-        # setup latent dimensions
-        self._latent_dim = None
-        self.latent_dim = latent_dim
+        ABCEncoder.__init__(self,
+                            latent_dim=latent_dim,
+                            latent_labels=latent_labels,
+                            latent_activation=latent_activation,
+                            latent_track=latent_track,
+                            **kwargs)
 
-        self._latent_labels = None
-        self.latent_labels = latent_labels
-
-        self._latent_activation = None
-        self.latent_activation = latent_activation
-
-        self.latent_track = latent_track
-
-        # class variables
-        self.latent_stack = None
-        self._latent = None
         self._latent_torch = None
-
-        self.kwargs = kwargs
-
-        # build model
-        self._build()
-
-    @property
-    def latent_dim(self) -> (int, tuple, list):
-        """ number of dimensions per latent space output """
-        return self._latent_dim
-
-    @latent_dim.setter
-    def latent_dim(self, value: (int, tuple, list)):
-        """ number of dimensions per latent space output """
-        if isinstance(value, int):
-            value = (value,)
-
-        self._latent_dim = value
-
-    @property
-    def latent_labels(self) -> (str, tuple, list, set, None):
-        """ label or list of labels of the latent space dimension(s), can be `None` """
-        return self._latent_labels
-
-    @latent_labels.setter
-    def latent_labels(self, value: (str, tuple, list, set, None)):
-        """ label or list of labels of the latent space dimension(s), can be `None` """
-        self._latent_labels = value
-
-    @property
-    def latent_activation(self) -> [str]:
-        """ activation function(s) of the latent space, can be `None` """
-        return self._latent_activation
-
-    @latent_activation.setter
-    def latent_activation(self, value: (str, tuple, list)):
-        """ activation function(s) of the latent space, can be `None` """
-        if value is None or isinstance(value, str):
-            value = [value] * len(self.latent_dim)
-
-        self._latent_activation = list(value)
 
     def _build(self):
         """ helper function to build the network:
@@ -135,22 +87,6 @@ class Encoder(nn.Module):
             self.latent_stack.append((label, layer, activation, latent_dim))
             setattr(self, label, layer)
 
-    def forward(self, x):
-        """ pytorch forward-method performing the encoding.
-
-        :param x: input tensor
-        :returns: latent space tensor (if no labels are defined or if only one latent space dimension is present),
-                  or tuple of latent space tensors, one for each latent space dimension.
-
-        The latent space encoding is stored in the `latent` and `latent_torch` properties.
-        """
-        latent = self.encoder_forward(x)
-
-        if self.latent_track:
-            self.set_latent(latent)
-
-        return latent
-
     def encoder_forward(self, x) -> torch.tensor:
         """ Encoder forward-method performing the encoding.
 
@@ -165,11 +101,6 @@ class Encoder(nn.Module):
             return z[0]
 
         return z
-
-    @property
-    def is_multi_latent(self) -> bool:
-        """ Boolean describing whether multiple latent space dimensions are present """
-        return self.latent_labels is not None and not isinstance(self.latent_labels, str)
 
     def set_latent(self, value: torch.tensor):
         """ setter for latent space evaluation property

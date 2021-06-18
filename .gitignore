@@ -29,10 +29,16 @@ nohup.out
 **.lammps
 **.ipynb_checkpoints
 dat
+dataset
 dat*
+dataset*
 **dat
+**dataset
 **__pycache__
 test
 sync
 papers
 venv
+lightning_logs
+node_modules
+*.zip
