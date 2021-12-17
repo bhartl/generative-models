@@ -1,9 +1,9 @@
 from __future__ import annotations
 import torch.cuda
 import torch.nn
-from gempy.torch.encoder import Encoder
-from gempy.torch.decoder import Decoder
-from gempy.torch.auto_encoder import AutoEncoder
+from gempy.torch_.encoder import Encoder
+from gempy.torch_.decoder import Decoder
+from gempy.torch_.auto_encoder import AutoEncoder
 
 
 class VariationalAutoEncoder(AutoEncoder):

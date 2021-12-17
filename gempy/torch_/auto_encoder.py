@@ -2,8 +2,8 @@ from __future__ import annotations
 import torch.nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from gempy.torch.encoder import Encoder
-from gempy.torch.decoder import Decoder
+from gempy.torch_.encoder import Encoder
+from gempy.torch_.decoder import Decoder
 
 
 class AutoEncoder(pl.LightningModule):
