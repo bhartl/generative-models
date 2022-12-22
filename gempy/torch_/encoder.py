@@ -3,11 +3,11 @@ import torch.nn as nn
 import torch.cuda
 import torch.tensor
 from gempy.encoder import Encoder as ABCEncoder
-from gempy.torch.util import get_conv_nd
-from gempy.torch.util import get_batch_norm_nd
-from gempy.torch.util import conv_output_shape
-from gempy.torch.util import call_activation
-from gempy.torch.util import get_activation_function
+from gempy.torch_.util import get_conv_nd
+from gempy.torch_.util import get_batch_norm_nd
+from gempy.torch_.util import conv_output_shape
+from gempy.torch_.util import call_activation
+from gempy.torch_.util import get_activation_function
 from functools import partial
 
 
